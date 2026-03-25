@@ -19,11 +19,29 @@ Usage:
 
 Flags for 'test':
   --border N    Add N pixels of padding around the detected subject (default 0)
+
+MCP Configuration:
+  Add mcpautocrop to Claude Desktop (~/.config/claude/claude_desktop_config.json)
+  or Cursor (~/.cursor/mcp.json):
+
+  {
+    "mcpServers": {
+      "mcpautocrop": {
+        "command": "%s",
+        "args": ["mcp"]
+      }
+    }
+  }
 `
 
 func main() {
+	exe, _ := os.Executable()
+	printUsage := func() {
+		fmt.Fprintf(os.Stderr, usage, Version, exe)
+	}
+
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, usage, Version)
+		printUsage()
 		os.Exit(1)
 	}
 
@@ -39,7 +57,7 @@ func main() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %q\n\n", os.Args[1])
-		fmt.Fprintf(os.Stderr, usage, Version)
+		printUsage()
 		os.Exit(1)
 	}
 }

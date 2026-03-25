@@ -1,4 +1,4 @@
-module github.com/nealkarpe/mcpautocrop
+module github.com/nealhardesty/mcpautocrop
 
 go 1.23.0
 

@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +19,16 @@ type subImager interface {
 
 // AutoCrop reads the image at inputPath, crops away the background color (sampled
 // from the top-left pixel), and writes the result to outputPath.
+//
 // border adds extra padding (in pixels) around the detected subject, clamped to
 // the image edges. Pass 0 for a tight crop with no padding.
+//
+// tolerance is the maximum Euclidean distance in 8-bit RGB space for a pixel to
+// still be considered background. 0 means exact match; values of 10–20 handle
+// near-uniform backgrounds with subtle anti-aliasing or compression noise.
+//
 // It returns a human-readable status message on success or an error.
-func AutoCrop(inputPath, outputPath string, border int) (string, error) {
+func AutoCrop(inputPath, outputPath string, border, tolerance int) (string, error) {
 	f, err := os.Open(inputPath)
 	if err != nil {
 		return "", fmt.Errorf("Error: Input file '%s' could not be opened.", inputPath)
@@ -36,7 +43,7 @@ func AutoCrop(inputPath, outputPath string, border int) (string, error) {
 	bounds := img.Bounds()
 	bgColor := img.At(bounds.Min.X, bounds.Min.Y)
 
-	box := findBoundingBox(img, bounds, bgColor)
+	box := findBoundingBox(img, bounds, bgColor, tolerance)
 	if box.Empty() {
 		return "Image consists entirely of background color; cannot crop.", nil
 	}
@@ -69,18 +76,29 @@ func AutoCrop(inputPath, outputPath string, border int) (string, error) {
 	return fmt.Sprintf("Successfully cropped and saved to %s", outputPath), nil
 }
 
-// findBoundingBox returns the smallest rectangle containing all pixels that
-// differ from bgColor.
-func findBoundingBox(img image.Image, bounds image.Rectangle, bgColor color.Color) image.Rectangle {
+// colorDistance returns the Euclidean distance between two colors in 8-bit RGB
+// space, ignoring alpha. The maximum possible value is ~441 (white vs. black).
+func colorDistance(a, b color.Color) float64 {
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	// RGBA() returns 16-bit values; shift to 8-bit for a human-friendly scale.
+	dr := float64(ar>>8) - float64(br>>8)
+	dg := float64(ag>>8) - float64(bg>>8)
+	db := float64(ab>>8) - float64(bb>>8)
+	return math.Sqrt(dr*dr + dg*dg + db*db)
+}
+
+// findBoundingBox returns the smallest rectangle containing all pixels whose
+// color distance from bgColor exceeds tolerance.
+func findBoundingBox(img image.Image, bounds image.Rectangle, bgColor color.Color, tolerance int) image.Rectangle {
 	minX, minY := bounds.Max.X, bounds.Max.Y
 	maxX, maxY := bounds.Min.X, bounds.Min.Y
 
-	bgR, bgG, bgB, bgA := bgColor.RGBA()
+	tol := float64(tolerance)
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			r, g, b, a := img.At(x, y).RGBA()
-			if r != bgR || g != bgG || b != bgB || a != bgA {
+			if colorDistance(img.At(x, y), bgColor) > tol {
 				if x < minX {
 					minX = x
 				}

@@ -51,7 +51,7 @@ func TestAutoCrop_CropsToSubject(t *testing.T) {
 	// 100x100 image, white background, red 20x30 subject at (10, 15).
 	createTestPNG(t, input, 100, 100, white, red, 10, 15, 20, 30)
 
-	msg, err := AutoCrop(input, output, 0)
+	msg, err := AutoCrop(input, output, 0, 0)
 	if err != nil {
 		t.Fatalf("AutoCrop returned error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestAutoCrop_AlreadyOptimal(t *testing.T) {
 	}
 	f.Close()
 
-	msg, err := AutoCrop(input, output, 0)
+	msg, err := AutoCrop(input, output, 0, 0)
 	if err != nil {
 		t.Fatalf("AutoCrop returned error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestAutoCrop_EntirelyBackground(t *testing.T) {
 	// Fill entire image with the same color as the background pixel.
 	createTestPNG(t, input, 50, 50, white, white, 0, 0, 50, 50)
 
-	msg, err := AutoCrop(input, output, 0)
+	msg, err := AutoCrop(input, output, 0, 0)
 	if err != nil {
 		t.Fatalf("AutoCrop returned error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestAutoCrop_FileNotFound(t *testing.T) {
 	dir := t.TempDir()
 	output := filepath.Join(dir, "out.png")
 
-	_, err := AutoCrop("/nonexistent/path/image.png", output, 0)
+	_, err := AutoCrop("/nonexistent/path/image.png", output, 0, 0)
 	if err == nil {
 		t.Fatal("expected error for missing file, got nil")
 	}
@@ -155,7 +155,7 @@ func TestAutoCrop_InvalidFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := AutoCrop(input, output, 0)
+	_, err := AutoCrop(input, output, 0, 0)
 	if err == nil {
 		t.Fatal("expected error for corrupt file, got nil")
 	}
@@ -176,7 +176,7 @@ func TestAutoCrop_Border(t *testing.T) {
 	// Tight crop → 20x30. With border=5 → 30x40 (subject+5 on each side).
 	createTestPNG(t, input, 100, 100, white, red, 10, 15, 20, 30)
 
-	msg, err := AutoCrop(input, output, 5)
+	msg, err := AutoCrop(input, output, 5, 0)
 	if err != nil {
 		t.Fatalf("AutoCrop returned error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestAutoCrop_BorderClampedToImageEdge(t *testing.T) {
 	// Clamping kicks in on all four sides, and box == original bounds → "already optimally cropped".
 	createTestPNG(t, input, 100, 100, white, red, 2, 2, 96, 96)
 
-	msg, err := AutoCrop(input, output, 10)
+	msg, err := AutoCrop(input, output, 10, 0)
 	if err != nil {
 		t.Fatalf("AutoCrop returned error: %v", err)
 	}
@@ -234,9 +234,91 @@ func TestFindBoundingBox_SinglePixelSubject(t *testing.T) {
 	}
 	img.Set(5, 7, red)
 
-	box := findBoundingBox(img, img.Bounds(), white)
+	box := findBoundingBox(img, img.Bounds(), white, 0)
 	expected := image.Rect(5, 7, 6, 8)
 	if box != expected {
 		t.Errorf("expected %v, got %v", expected, box)
+	}
+}
+
+func TestAutoCrop_Tolerance(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "test.png")
+	output := filepath.Join(dir, "out.png")
+
+	// Build a 50x50 image that mimics a real screenshot border: the top-left pixel
+	// is pure white (255,255,255) but other border pixels vary slightly — exactly
+	// the pattern seen in anti-aliased PNGs.
+	//
+	// With tolerance=0 (exact match against 255,255,255), the off-white border pixels
+	// don't match and the bounding box spans the full image.
+	// With tolerance=10, all near-white pixels are treated as background and only the
+	// red subject remains.
+	img := image.NewRGBA(image.Rect(0, 0, 50, 50))
+	pureWhite := color.RGBA{255, 255, 255, 255}
+	offWhite := color.RGBA{252, 253, 252, 255} // distance ~3.5 from pure white
+	red := color.RGBA{200, 50, 50, 255}
+
+	// Fill with pure white first (this is what (0,0) will be).
+	for y := 0; y < 50; y++ {
+		for x := 0; x < 50; x++ {
+			img.Set(x, y, pureWhite)
+		}
+	}
+	// Scatter off-white pixels throughout the border area to simulate anti-aliasing.
+	for y := 0; y < 50; y++ {
+		for x := 0; x < 50; x++ {
+			if (x+y)%3 == 1 { // every third pixel is slightly off
+				img.Set(x, y, offWhite)
+			}
+		}
+	}
+	// Red subject at (10,10) 20x20 (overwrites any off-white there).
+	for y := 10; y < 30; y++ {
+		for x := 10; x < 30; x++ {
+			img.Set(x, y, red)
+		}
+	}
+
+	f, err := os.Create(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+
+	// tolerance=0: exact match against (253,253,253); off-white border pixels look like
+	// subject → bounding box == full image → "already optimally cropped".
+	msg, err := AutoCrop(input, output, 0, 0)
+	if err != nil {
+		t.Fatalf("AutoCrop returned error: %v", err)
+	}
+	if !strings.Contains(msg, "already optimally cropped") {
+		t.Errorf("expected no-op with tolerance=0, got: %q", msg)
+	}
+
+	// tolerance=10: off-white pixels are within range of the background → subject isolated.
+	msg, err = AutoCrop(input, output, 0, 10)
+	if err != nil {
+		t.Fatalf("AutoCrop returned error: %v", err)
+	}
+	if !strings.HasPrefix(msg, "Successfully cropped") {
+		t.Fatalf("expected crop with tolerance=10, got: %q", msg)
+	}
+	cf, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cf.Close()
+	cropped, err := png.Decode(cf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := cropped.Bounds()
+	if b.Dx() != 20 || b.Dy() != 20 {
+		t.Errorf("expected 20x20 crop with tolerance=10, got %dx%d", b.Dx(), b.Dy())
 	}
 }

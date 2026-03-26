@@ -16,6 +16,7 @@ A lightweight MCP (Model Context Protocol) server that exposes an `auto_crop_ima
 | `input_path` | string | yes | Source image file (PNG or JPEG) |
 | `output_path` | string | yes | Destination file for the cropped result |
 | `border` | integer | no | Pixels of padding to add around the subject (default `0`) |
+| `tolerance` | integer | no | Max Euclidean RGB distance for a pixel to count as background (default `10`). Increase for noisy or anti-aliased images. |
 
 **Return values:**
 - `Successfully cropped and saved to <output_path>`
@@ -64,15 +65,17 @@ mcpautocrop --version | -v              Print version and exit
 **Example:**
 
 ```bash
-# Tight crop (no padding)
+# Default: tight crop with tolerance=10 (handles anti-aliased backgrounds)
 ./mcpautocrop test photo.png photo_cropped.png
 
 # Add 10 pixels of padding around the subject
 ./mcpautocrop test --border 10 photo.png photo_cropped.png
-# Successfully cropped and saved to photo_cropped.png
+
+# Exact-match background (tolerance=0) with padding
+./mcpautocrop test --tolerance 0 --border 5 photo.png photo_cropped.png
 ```
 
-> **Note:** `--border` must appear before the positional arguments.
+> **Note:** Flags must appear before the positional arguments.
 
 ## MCP Configuration (Claude Desktop)
 

@@ -13,12 +13,14 @@ import (
 const usage = `mcpautocrop %s
 
 Usage:
-  mcpautocrop mcp                                   Run as an MCP server (stdio transport)
-  mcpautocrop test [--border N] <input> <output>    Crop an image and print the result
-  mcpautocrop --version | -v                        Print version and exit
+  mcpautocrop mcp                                          Run as an MCP server (stdio transport)
+  mcpautocrop test [--border N] [--tolerance N] <input> <output>
+  mcpautocrop --version | -v                               Print version and exit
 
 Flags for 'test':
-  --border N    Add N pixels of padding around the detected subject (default 0)
+  --border N      Add N pixels of padding around the detected subject (default 0)
+  --tolerance N   Max Euclidean RGB distance for a pixel to count as background (default 10)
+                  Use 0 for exact match, higher values for noisy/anti-aliased backgrounds.
 
 MCP Configuration:
   Add mcpautocrop to Claude Desktop (~/.config/claude/claude_desktop_config.json)
@@ -91,6 +93,11 @@ func runMCP() {
 			"border",
 			mcp.Description("Pixels of padding to add around the detected subject (default 0)."),
 		),
+		mcp.WithNumber(
+			"tolerance",
+			mcp.Description("Max Euclidean RGB distance for a pixel to be treated as background (default 10). "+
+				"Use 0 for exact match, higher values for noisy or anti-aliased backgrounds."),
+		),
 	)
 
 	s.AddTool(autoCropTool, autoCropHandler)
@@ -105,8 +112,9 @@ func runMCP() {
 func runTest() {
 	fs := flag.NewFlagSet("test", flag.ExitOnError)
 	border := fs.Int("border", 0, "pixels of padding to add around the detected subject")
+	tolerance := fs.Int("tolerance", 10, "max Euclidean RGB distance to count as background")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: mcpautocrop test [--border N] <input> <output>\n")
+		fmt.Fprintf(os.Stderr, "usage: mcpautocrop test [--border N] [--tolerance N] <input> <output>\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(os.Args[2:]); err != nil {
@@ -118,7 +126,7 @@ func runTest() {
 	}
 	input, output := fs.Arg(0), fs.Arg(1)
 
-	msg, err := AutoCrop(input, output, *border)
+	msg, err := AutoCrop(input, output, *border, *tolerance)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -138,8 +146,9 @@ func autoCropHandler(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	}
 
 	border := mcp.ParseInt(req, "border", 0)
+	tolerance := mcp.ParseInt(req, "tolerance", 10)
 
-	msg, err := AutoCrop(inputPath, outputPath, border)
+	msg, err := AutoCrop(inputPath, outputPath, border, tolerance)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}

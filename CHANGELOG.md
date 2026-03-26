@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.3] - 2026-03-25
+
+### Added
+- `tolerance` parameter for `AutoCrop`: max Euclidean RGB distance for a pixel to be treated as background (default 10). Fixes incorrect "already optimally cropped" result on images with anti-aliased or slightly non-uniform white borders (e.g. real-world PNG screenshots).
+- `--tolerance N` flag for the `test` CLI subcommand (default 10)
+- `tolerance` optional integer parameter for the `auto_crop_image` MCP tool (default 10)
+- `colorDistance()` helper using Euclidean distance in 8-bit RGB space
+- `TestAutoCrop_Tolerance` test verifying exact-match failure and tolerance-based success
+
+### Fixed
+- Images with near-white (non-uniform) borders — such as browser screenshots — were incorrectly reported as "already optimally cropped" due to strict exact-match pixel comparison
+
 ## [0.1.2] - 2026-03-25
 
 ### Added
